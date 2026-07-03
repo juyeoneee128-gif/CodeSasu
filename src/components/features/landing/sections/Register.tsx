@@ -66,7 +66,7 @@ export function Register() {
           <p className="mt-5 text-[16px] md:text-[17px] font-medium text-muted-foreground leading-relaxed">
             Beta 출시 시 가장 먼저 알려드립니다
             <br />
-            사전 등록하시면 무료 500 크레딧을 드려요
+            사전 등록하고 출시 첫 달 무료 크레딧을 받으세요
           </p>
         </FadeIn>
 

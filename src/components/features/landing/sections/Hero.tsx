@@ -14,9 +14,9 @@ export function Hero() {
             내 손안의 사수 개발자
           </h1>
           <p className="mt-7 text-[18px] md:text-[20px] font-medium text-muted-foreground leading-relaxed max-w-2xl">
-            AI가 내 코딩 과정을 지켜보고,
+            코드가 어디서 망가졌는지, AI가 어려운 개발 용어를 쉽게 풀어서
             <br />
-            문제가 생기면 먼저 알려줍니다
+            고치는 법까지 알려줍니다
           </p>
           <div className="mt-10 w-full flex flex-col items-center gap-3">
             <a href="#register" className="w-full max-w-xs md:w-auto md:max-w-none">
@@ -25,7 +25,10 @@ export function Hero() {
               </Button>
             </a>
             <p className="text-sm text-muted-foreground">
-              사전 등록 시 무료 500 크레딧
+              사전 등록하고 출시 첫 달 무료 크레딧을 받으세요
+            </p>
+            <p className="text-xs text-muted-foreground">
+              현재 macOS + Claude Code 환경을 지원합니다
             </p>
           </div>
         </div>

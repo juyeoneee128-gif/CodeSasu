@@ -4,18 +4,18 @@ import { FadeIn } from '@/src/components/features/landing/_components/FadeIn';
 const policies = [
   {
     Icon: Lock,
-    title: '코드 원본은 저장하지 않습니다',
-    body: '분석 후 즉시 파기',
+    title: '코드 원본은 즉시 파기합니다',
+    body: '분석이 끝나면 코드는 저장하지 않고 바로 폐기합니다',
   },
   {
     Icon: ShieldCheck,
-    title: '암호화된 통신',
-    body: 'HTTPS + AES-256 암호화 저장',
+    title: '기획서(docs)는 기능 추출을 위해 저장됩니다',
+    body: '무엇을 만들려 했는지 대조하는 데만 씁니다',
   },
   {
     Icon: FileSearch,
-    title: '투명한 수집 범위',
-    body: '수집: 세션 로그, 변경 diff, docs 문서\n미수집: .env, 비밀번호, 개인정보',
+    title: '민감정보는 값 자체를 저장하지 않습니다',
+    body: '비밀번호·API 키 같은 값은 저장하지 않지만, 코드나 설정 파일에 키가 노출돼 있으면 유출 위험을 알려드립니다',
   },
 ];
 
