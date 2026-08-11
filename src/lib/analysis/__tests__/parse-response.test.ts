@@ -328,6 +328,109 @@ describe('parseAnalysisResponse — 모드별 상한', () => {
   });
 });
 
+describe('parseAnalysisResponse — file_signatures', () => {
+  it('file_signatures가 없으면 결과에도 키가 없다 (기존 동작 보존)', () => {
+    const result = parseAnalysisResponse(
+      mockResult([{ issues: [fullIssue()] }])
+    );
+    expect(result.file_signatures).toBeUndefined();
+    expect(result.issues).toHaveLength(1);
+  });
+
+  it('정상 file_signatures 항목을 파싱한다', () => {
+    const result = parseAnalysisResponse(
+      mockResult([
+        {
+          issues: [],
+          file_signatures: [
+            {
+              file_path: 'src/auth/login.ts',
+              functions: ['handleLogin', 'validateEmail'],
+              imports: ['next/server', '@/lib/supabase'],
+              exports: ['handleLogin'],
+              patterns: ['supabase.auth.signInWithPassword'],
+              line_count: 120,
+            },
+          ],
+        },
+      ])
+    );
+
+    expect(result.file_signatures).toHaveLength(1);
+    expect(result.file_signatures![0]).toEqual({
+      file_path: 'src/auth/login.ts',
+      functions: ['handleLogin', 'validateEmail'],
+      imports: ['next/server', '@/lib/supabase'],
+      exports: ['handleLogin'],
+      patterns: ['supabase.auth.signInWithPassword'],
+      line_count: 120,
+    });
+  });
+
+  it('file_path 누락 항목은 drop하고 warning을 추가한다', () => {
+    const result = parseAnalysisResponse(
+      mockResult([
+        {
+          issues: [],
+          file_signatures: [
+            { functions: ['foo'], line_count: 10 }, // file_path 없음
+            { file_path: 'a.ts', functions: ['bar'], imports: [], exports: [], patterns: [], line_count: 5 },
+          ],
+        },
+      ])
+    );
+
+    expect(result.file_signatures).toHaveLength(1);
+    expect(result.file_signatures![0].file_path).toBe('a.ts');
+    expect(result.warnings.some((w) => w.includes('file_signatures'))).toBe(true);
+  });
+
+  it('비-배열 필드는 빈 배열로 fallback (LLM이 형식 어긋나도 graceful)', () => {
+    const result = parseAnalysisResponse(
+      mockResult([
+        {
+          issues: [],
+          file_signatures: [
+            {
+              file_path: 'a.ts',
+              functions: 'not-an-array', // 잘못된 타입
+              imports: ['ok'],
+              exports: null,
+              patterns: undefined,
+              line_count: 'forty', // 잘못된 타입
+            },
+          ],
+        },
+      ])
+    );
+
+    expect(result.file_signatures![0]).toEqual({
+      file_path: 'a.ts',
+      functions: [],
+      imports: ['ok'],
+      exports: [],
+      patterns: [],
+      line_count: 0,
+    });
+  });
+
+  it('issues 형식이 잘못되어도 file_signatures는 별도로 파싱된다', () => {
+    const result = parseAnalysisResponse(
+      mockResult([
+        {
+          issues: 'not-an-array',
+          file_signatures: [
+            { file_path: 'a.ts', functions: [], imports: [], exports: [], patterns: [], line_count: 0 },
+          ],
+        },
+      ])
+    );
+
+    expect(result.issues).toHaveLength(0);
+    expect(result.file_signatures).toHaveLength(1);
+  });
+});
+
 describe('parseGuidelineResponse', () => {
   it('정상적인 규칙을 파싱한다', () => {
     const result = parseGuidelineResponse(

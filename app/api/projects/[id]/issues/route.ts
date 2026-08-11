@@ -52,6 +52,7 @@ export async function GET(request: Request, { params }: Params) {
       unconfirmed: all.filter((i) => i.status === 'unconfirmed').length,
       confirmed: all.filter((i) => i.status === 'confirmed').length,
       resolved: all.filter((i) => i.status === 'resolved').length,
+      auto_resolved: all.filter((i) => i.status === 'auto_resolved').length,
     },
     by_level: {
       critical: all.filter((i) => i.level === 'critical').length,
@@ -69,10 +70,15 @@ export async function GET(request: Request, { params }: Params) {
     filtered = filtered.filter((i) => levelFilter.includes(i.level));
   }
 
-  // 정렬: unconfirmed → confirmed → resolved, 같은 status 내 detected_at DESC
-  const statusOrder: Record<string, number> = { unconfirmed: 0, confirmed: 1, resolved: 2 };
+  // 정렬: unconfirmed → confirmed → auto_resolved → resolved, 같은 status 내 detected_at DESC
+  const statusOrder: Record<string, number> = {
+    unconfirmed: 0,
+    confirmed: 1,
+    auto_resolved: 2,
+    resolved: 3,
+  };
   filtered.sort((a, b) => {
-    const statusDiff = (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3);
+    const statusDiff = (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4);
     if (statusDiff !== 0) return statusDiff;
     return new Date(b.detected_at).getTime() - new Date(a.detected_at).getTime();
   });

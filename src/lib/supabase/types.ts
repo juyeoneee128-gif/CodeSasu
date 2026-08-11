@@ -51,6 +51,9 @@ export interface Database {
           agent_path: string | null;
           agent_token: string | null;
           signing_key: string;
+          first_scan_done: boolean;
+          pending_full_scan: boolean;
+          pending_full_scan_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -63,6 +66,9 @@ export interface Database {
           agent_path?: string | null;
           agent_token?: string | null;
           signing_key?: string;
+          first_scan_done?: boolean;
+          pending_full_scan?: boolean;
+          pending_full_scan_at?: string | null;
         };
         Update: {
           name?: string;
@@ -70,6 +76,9 @@ export interface Database {
           agent_last_seen?: string | null;
           agent_path?: string | null;
           agent_token?: string | null;
+          first_scan_done?: boolean;
+          pending_full_scan?: boolean;
+          pending_full_scan_at?: string | null;
         };
         Relationships: [];
       };
@@ -130,7 +139,7 @@ export interface Database {
           session_id: string | null;
           title: string;
           level: 'critical' | 'warning' | 'info';
-          status: 'unconfirmed' | 'confirmed' | 'resolved';
+          status: 'unconfirmed' | 'confirmed' | 'resolved' | 'auto_resolved';
           fact: string;
           detail: string;
           fix_command: string;
@@ -151,7 +160,7 @@ export interface Database {
           session_id?: string | null;
           title: string;
           level: 'critical' | 'warning' | 'info';
-          status?: 'unconfirmed' | 'confirmed' | 'resolved';
+          status?: 'unconfirmed' | 'confirmed' | 'resolved' | 'auto_resolved';
           fact?: string;
           detail?: string;
           fix_command?: string;
@@ -168,7 +177,7 @@ export interface Database {
         Update: {
           title?: string;
           level?: 'critical' | 'warning' | 'info';
-          status?: 'unconfirmed' | 'confirmed' | 'resolved';
+          status?: 'unconfirmed' | 'confirmed' | 'resolved' | 'auto_resolved';
           fact?: string;
           detail?: string;
           fix_command?: string;
@@ -221,6 +230,7 @@ export interface Database {
           content_hash: string | null;
           path: string | null;
           source: 'manual' | 'agent';
+          classification: 'prd' | 'spec' | 'other' | null;
           modified_at: string | null;
           deleted_at: string | null;
           uploaded_at: string;
@@ -236,6 +246,7 @@ export interface Database {
           content_hash?: string | null;
           path?: string | null;
           source?: 'manual' | 'agent';
+          classification?: 'prd' | 'spec' | 'other' | null;
           modified_at?: string | null;
           deleted_at?: string | null;
           uploaded_at?: string;
@@ -248,6 +259,7 @@ export interface Database {
           content_hash?: string | null;
           path?: string | null;
           source?: 'manual' | 'agent';
+          classification?: 'prd' | 'spec' | 'other' | null;
           modified_at?: string | null;
           deleted_at?: string | null;
         };
@@ -262,9 +274,11 @@ export interface Database {
           source: 'FRD' | 'PRD';
           status: 'implemented' | 'partial' | 'unimplemented' | 'attention';
           implemented_items: Json;
+          expected_items: Json;
           total_items: number;
           related_files: Json;
           prd_summary: string | null;
+          is_duplicate: boolean;
           created_at: string;
         };
         Insert: {
@@ -275,18 +289,58 @@ export interface Database {
           source: 'FRD' | 'PRD';
           status?: 'implemented' | 'partial' | 'unimplemented' | 'attention';
           implemented_items?: Json;
+          expected_items?: Json;
           total_items?: number;
           related_files?: Json;
           prd_summary?: string | null;
+          is_duplicate?: boolean;
         };
         Update: {
           name?: string;
           source?: 'FRD' | 'PRD';
           status?: 'implemented' | 'partial' | 'unimplemented' | 'attention';
           implemented_items?: Json;
+          expected_items?: Json;
           total_items?: number;
           related_files?: Json;
           prd_summary?: string | null;
+          is_duplicate?: boolean;
+        };
+        Relationships: [];
+      };
+      file_signatures: {
+        Row: {
+          id: string;
+          project_id: string;
+          file_path: string;
+          functions: string[];
+          imports: string[];
+          exports: string[];
+          patterns: string[];
+          line_count: number;
+          last_seen_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          file_path: string;
+          functions?: string[];
+          imports?: string[];
+          exports?: string[];
+          patterns?: string[];
+          line_count?: number;
+          last_seen_at?: string;
+        };
+        Update: {
+          file_path?: string;
+          functions?: string[];
+          imports?: string[];
+          exports?: string[];
+          patterns?: string[];
+          line_count?: number;
+          last_seen_at?: string;
         };
         Relationships: [];
       };
@@ -294,7 +348,7 @@ export interface Database {
         Row: {
           id: string;
           session_id: string;
-          data_type: 'file_tree' | 'diff' | 'eslint';
+          data_type: 'file_tree' | 'diff' | 'eslint' | 'source_file';
           content: Json;
           expires_at: string;
           created_at: string;
@@ -302,7 +356,7 @@ export interface Database {
         Insert: {
           id?: string;
           session_id: string;
-          data_type: 'file_tree' | 'diff' | 'eslint';
+          data_type: 'file_tree' | 'diff' | 'eslint' | 'source_file';
           content: Json;
           expires_at?: string;
         };

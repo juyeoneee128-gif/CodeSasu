@@ -77,6 +77,16 @@ export async function callClaude(options: ClaudeCallOptions): Promise<ClaudeCall
     tool_choice: { type: 'any' },
   });
 
+  // max_tokens 도달 시 SDK가 tool_use input을 잘라서 반환할 수 있음 — 사일런트 실패 방지.
+  if (response.stop_reason === 'max_tokens') {
+    console.warn(
+      `[callClaude] stop_reason=max_tokens — response truncated. ` +
+        `model=${options.model ?? MODEL} max_tokens=${options.maxTokens ?? MAX_TOKENS} ` +
+        `usage=in:${response.usage.input_tokens}/out:${response.usage.output_tokens}. ` +
+        `Increase maxTokens or chunk input.`
+    );
+  }
+
   // tool_use 블록 추출
   const toolInputs: Record<string, unknown>[] = [];
   for (const block of response.content) {

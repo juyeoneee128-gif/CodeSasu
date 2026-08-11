@@ -63,6 +63,7 @@ export async function PATCH(request: Request, { params }: Params) {
     unconfirmed: ['confirmed'],
     confirmed: ['resolved'],
     resolved: [], // resolved에서는 사용자가 수동 전이 불가 (재감지만 Tier 3이 수행)
+    auto_resolved: ['confirmed', 'unconfirmed'], // "확인" 또는 "아직 안 고쳐졌어" 되돌리기
   };
 
   if (!newStatus || !validTransitions[issue.status]?.includes(newStatus)) {

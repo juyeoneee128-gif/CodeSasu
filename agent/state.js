@@ -6,7 +6,7 @@ const MAX_ENTRIES = 1000;
 export class State {
   constructor(path) {
     this.path = path;
-    this.data = { pushed_session_ids: [] };
+    this.data = { pushed_session_ids: [], full_scan_sent_at: {} };
     this._loaded = false;
   }
 
@@ -16,6 +16,9 @@ export class State {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed.pushed_session_ids)) {
         this.data.pushed_session_ids = parsed.pushed_session_ids;
+      }
+      if (parsed.full_scan_sent_at && typeof parsed.full_scan_sent_at === 'object') {
+        this.data.full_scan_sent_at = parsed.full_scan_sent_at;
       }
     } catch (err) {
       if (err.code !== 'ENOENT') {
@@ -35,6 +38,15 @@ export class State {
     if (this.data.pushed_session_ids.length > MAX_ENTRIES) {
       this.data.pushed_session_ids.splice(0, this.data.pushed_session_ids.length - MAX_ENTRIES);
     }
+    await this._persist();
+  }
+
+  hasFullScanSent(projectId) {
+    return typeof this.data.full_scan_sent_at[projectId] === 'string';
+  }
+
+  async markFullScanSent(projectId) {
+    this.data.full_scan_sent_at[projectId] = new Date().toISOString();
     await this._persist();
   }
 

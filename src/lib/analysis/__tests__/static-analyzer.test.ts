@@ -470,3 +470,101 @@ describe('analyzeStatic — ESLint 통합', () => {
     expect(integrationWarning).toContain('1 auto-converted');
   });
 });
+
+describe('analyzeStatic — auditMode (부팅 스캔 전용 프롬프트)', () => {
+  it('auditMode=true면 callClaude에 BOOT_SCAN_SYSTEM이 전달된다', async () => {
+    // 동기 import는 vi.mock 순서 문제로 ESM 환경에서 안정적이지 않으므로
+    // 동적 import로 시점을 늦춰 vi.mock이 먼저 적용되도록 함.
+    const { BOOT_SCAN_SYSTEM } = await import('../prompts');
+
+    const diffs = [makeDiff('app/api/auth.ts', 1_000)];
+    await analyzeStatic(
+      {
+        projectName: 'p',
+        sessionTitle: 's',
+        filesChanged: diffs.map((d) => d.file_path),
+        diffs,
+      },
+      'full',
+      { auditMode: true }
+    );
+
+    expect(mockedCallClaude).toHaveBeenCalledTimes(1);
+    const callArgs = mockedCallClaude.mock.calls[0][0] as { systemPrompt: string };
+    expect(callArgs.systemPrompt).toBe(BOOT_SCAN_SYSTEM);
+    // 운영 코드 감사 톤의 시그니처 키워드도 확인 (BOOT_SCAN_SYSTEM 본문 검증은 prompts.test.ts)
+    expect(callArgs.systemPrompt).toContain('운영 중인');
+  });
+
+  it('auditMode 미지정 시에는 buildStaticAnalysisSystem(mode)이 사용된다 (기본 동작 유지)', async () => {
+    const { buildStaticAnalysisSystem, BOOT_SCAN_SYSTEM } = await import('../prompts');
+
+    const diffs = [makeDiff('src/lib/foo.ts', 1_000)];
+    await analyzeStatic(
+      {
+        projectName: 'p',
+        sessionTitle: 's',
+        filesChanged: diffs.map((d) => d.file_path),
+        diffs,
+      },
+      'full'
+      // options 없음 — 코딩 세션 분석의 기본 경로
+    );
+
+    const callArgs = mockedCallClaude.mock.calls[0][0] as { systemPrompt: string };
+    expect(callArgs.systemPrompt).toBe(buildStaticAnalysisSystem('full'));
+    expect(callArgs.systemPrompt).not.toBe(BOOT_SCAN_SYSTEM);
+  });
+
+  it('maxApiCallsOverride=15면 split 경로에서 최대 15회까지 호출된다 (부팅 스캔 한도 상향)', async () => {
+    // 16개 청크가 만들어지도록: 16 * 9_000 = 144_000 (각 9K씩, CHUNK_TARGET=10K)
+    // 기본 MAX_API_CALLS=5라면 11청크 미처리, override=15면 1청크만 미처리.
+    const diffs = Array.from({ length: 16 }, (_, i) =>
+      makeDiff(`src/lib/file${i}.ts`, 9_000)
+    );
+
+    const result = await analyzeStatic(
+      {
+        projectName: 'p',
+        sessionTitle: 's',
+        filesChanged: diffs.map((d) => d.file_path),
+        diffs,
+      },
+      'full',
+      { auditMode: true, maxApiCallsOverride: 15 }
+    );
+
+    // 정확히 15회 호출, 1청크(=1개 파일)만 미처리
+    expect(mockedCallClaude.mock.calls.length).toBe(15);
+    expect(result.unprocessed_files).toBeDefined();
+    expect(result.unprocessed_files!.length).toBe(1);
+    // warning 메시지의 한도 표기도 15로 갱신됨
+    expect(
+      result.warnings.some((w) => w.includes('Reached max API calls (15)'))
+    ).toBe(true);
+  });
+
+  it('maxApiCallsOverride 미지정 시 기존 MAX_API_CALLS(5) 한도 유지', async () => {
+    // 7개 청크 → 기본 5회까지만 호출, 2청크 미처리 (기존 회귀 보호 테스트와 동일)
+    const diffs = Array.from({ length: 7 }, (_, i) =>
+      makeDiff(`src/lib/g${i}.ts`, 9_000)
+    );
+
+    const result = await analyzeStatic(
+      {
+        projectName: 'p',
+        sessionTitle: 's',
+        filesChanged: diffs.map((d) => d.file_path),
+        diffs,
+      },
+      'full',
+      { auditMode: true } // override 없음 — auditMode만 켜져도 한도는 그대로
+    );
+
+    expect(mockedCallClaude.mock.calls.length).toBe(MAX_API_CALLS);
+    expect(result.unprocessed_files!.length).toBe(2);
+    expect(
+      result.warnings.some((w) => w.includes(`Reached max API calls (${MAX_API_CALLS})`))
+    ).toBe(true);
+  });
+});

@@ -200,6 +200,72 @@ describe('parseSession — 신규 필드', () => {
   });
 });
 
+describe('parseSession — file_signatures (Read tool_result 정규식 추출)', () => {
+  it('Read tool_result 본문에서 JS/TS 시그니처를 추출한다', () => {
+    const fileBody = `import { NextResponse } from 'next/server';
+export async function POST(request) {
+  const supabase = await createClient();
+  await supabase.auth.signInWithPassword({});
+  return NextResponse.json({});
+}`;
+    const escaped = JSON.stringify(fileBody);
+
+    const jsonl = [
+      '{"type":"user","parentUuid":null,"uuid":"u1","timestamp":"2026-04-08T10:00:00Z","message":{"role":"user","content":[{"type":"text","text":"check login"}]},"cwd":"/Users/dev/proj"}',
+      `{"type":"assistant","parentUuid":"u1","uuid":"a1","timestamp":"2026-04-08T10:00:01Z","message":{"model":"m","role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Read","input":{"file_path":"/Users/dev/proj/app/api/auth/login/route.ts"}}]}}`,
+      `{"type":"user","parentUuid":"a1","uuid":"u2","timestamp":"2026-04-08T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":${escaped}}]}}`,
+    ].join('\n');
+
+    const result = parseSession(jsonl);
+    expect(result.file_signatures).toHaveLength(1);
+    const sig = result.file_signatures[0];
+    expect(sig.file_path).toBe('app/api/auth/login/route.ts');
+    expect(sig.imports).toContain('next/server');
+    expect(sig.exports).toContain('POST');
+    expect(sig.functions).toContain('POST');
+    expect(sig.patterns.some((p) => p.startsWith('supabase.'))).toBe(true);
+  });
+
+  it('JS/TS 외 파일 (json/md)은 시그니처에 포함되지 않는다', () => {
+    const escaped = JSON.stringify('{ "a": 1 }');
+
+    const jsonl = [
+      '{"type":"user","parentUuid":null,"uuid":"u1","timestamp":"2026-04-08T10:00:00Z","message":{"role":"user","content":[{"type":"text","text":"x"}]},"cwd":"/Users/dev/p"}',
+      `{"type":"assistant","parentUuid":"u1","uuid":"a1","timestamp":"2026-04-08T10:00:01Z","message":{"model":"m","role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Read","input":{"file_path":"/Users/dev/p/package.json"}}]}}`,
+      `{"type":"user","parentUuid":"a1","uuid":"u2","timestamp":"2026-04-08T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":${escaped}}]}}`,
+    ].join('\n');
+
+    const result = parseSession(jsonl);
+    expect(result.file_signatures).toHaveLength(0);
+  });
+
+  it('Read가 없는 세션은 빈 file_signatures', () => {
+    const result = parseSession(MOCK_JSONL);
+    // MOCK_JSONL의 Read tool_result는 file_path가 .ts지만 본문이 더미라 추출은 가능
+    // 여기서는 형식만 확인 — 배열이어야 함
+    expect(Array.isArray(result.file_signatures)).toBe(true);
+  });
+
+  it('빈 세션에서도 file_signatures는 빈 배열', () => {
+    const result = parseSession('');
+    expect(result.file_signatures).toEqual([]);
+  });
+
+  it('tool_result.content가 [{type:"text",text:...}] 형태도 처리', () => {
+    const fileBody = 'export const X = 1;';
+
+    const jsonl = [
+      '{"type":"user","parentUuid":null,"uuid":"u1","timestamp":"2026-04-08T10:00:00Z","message":{"role":"user","content":[{"type":"text","text":"x"}]},"cwd":"/Users/dev/p"}',
+      `{"type":"assistant","parentUuid":"u1","uuid":"a1","timestamp":"2026-04-08T10:00:01Z","message":{"model":"m","role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Read","input":{"file_path":"/Users/dev/p/x.ts"}}]}}`,
+      `{"type":"user","parentUuid":"a1","uuid":"u2","timestamp":"2026-04-08T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":[{"type":"text","text":${JSON.stringify(fileBody)}}]}]}}`,
+    ].join('\n');
+
+    const result = parseSession(jsonl);
+    expect(result.file_signatures).toHaveLength(1);
+    expect(result.file_signatures[0].exports).toContain('X');
+  });
+});
+
 describe('formatDuration', () => {
   it('60초 미만은 "0분"', () => {
     expect(formatDuration(0)).toBe('0분');

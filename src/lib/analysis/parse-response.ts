@@ -1,5 +1,6 @@
 import type { ClaudeCallResult } from './claude-client';
 import type { AnalysisMode } from './prompts';
+import type { FileSignature } from '../specs/save-signatures';
 
 // ─── 분석 결과 타입 ───
 
@@ -25,6 +26,11 @@ export interface AnalysisResult {
    * static-analyzer의 청크 분할 분기에서만 채워짐. 단일 호출 시 undefined.
    */
   unprocessed_files?: string[];
+  /**
+   * full 모드에서 LLM이 추출한 파일 시그니처. problems_only 모드면 비어있음.
+   * 잘못된 형식의 항목은 drop되고 warnings에 기록됨.
+   */
+  file_signatures?: FileSignature[];
 }
 
 // ─── 보호 규칙 결과 타입 ───
@@ -69,6 +75,7 @@ export function parseAnalysisResponse(
 ): AnalysisResult {
   const warnings: string[] = [];
   const issues: DetectedIssue[] = [];
+  const signatures: FileSignature[] = [];
 
   if (result.toolInputs.length === 0) {
     warnings.push('Claude did not call the analysis tool');
@@ -80,17 +87,29 @@ export function parseAnalysisResponse(
 
     if (!Array.isArray(rawIssues)) {
       warnings.push('issues field is not an array');
-      continue;
+    } else {
+      for (let i = 0; i < rawIssues.length; i++) {
+        const raw = rawIssues[i] as Record<string, unknown>;
+        const validation = validateIssue(raw, i);
+
+        if (validation.valid) {
+          issues.push(validation.issue);
+        } else {
+          warnings.push(validation.error);
+        }
+      }
     }
 
-    for (let i = 0; i < rawIssues.length; i++) {
-      const raw = rawIssues[i] as Record<string, unknown>;
-      const validation = validateIssue(raw, i);
-
-      if (validation.valid) {
-        issues.push(validation.issue);
-      } else {
-        warnings.push(validation.error);
+    // file_signatures는 선택 필드 — issues 형식이 잘못되어도 별도로 파싱
+    const rawSignatures = input.file_signatures;
+    if (Array.isArray(rawSignatures)) {
+      for (let i = 0; i < rawSignatures.length; i++) {
+        const validation = validateSignature(rawSignatures[i] as Record<string, unknown>, i);
+        if (validation.valid) {
+          signatures.push(validation.signature);
+        } else {
+          warnings.push(validation.error);
+        }
       }
     }
   }
@@ -101,7 +120,47 @@ export function parseAnalysisResponse(
   );
   warnings.push(...truncationWarnings);
 
-  return { issues: limited, tokenUsage: result.tokenUsage, warnings };
+  return {
+    issues: limited,
+    tokenUsage: result.tokenUsage,
+    warnings,
+    ...(signatures.length > 0 ? { file_signatures: signatures } : {}),
+  };
+}
+
+/**
+ * file_signatures 항목 검증 — 필수 필드 + 타입 체크.
+ * 잘못된 항목은 drop하고 warnings로 보고 (issues는 살림).
+ */
+function validateSignature(
+  raw: Record<string, unknown>,
+  index: number
+): { valid: true; signature: FileSignature } | { valid: false; error: string } {
+  if (!raw || typeof raw.file_path !== 'string' || raw.file_path.trim() === '') {
+    return { valid: false, error: `file_signatures[${index}]: missing file_path` };
+  }
+
+  const arrField = (key: string): string[] => {
+    const v = raw[key];
+    if (!Array.isArray(v)) return [];
+    return v.filter((x): x is string => typeof x === 'string');
+  };
+
+  const lineCount = typeof raw.line_count === 'number' && Number.isFinite(raw.line_count)
+    ? Math.max(0, Math.floor(raw.line_count))
+    : 0;
+
+  return {
+    valid: true,
+    signature: {
+      file_path: raw.file_path,
+      functions: arrField('functions'),
+      imports: arrField('imports'),
+      exports: arrField('exports'),
+      patterns: arrField('patterns'),
+      line_count: lineCount,
+    },
+  };
 }
 
 /**

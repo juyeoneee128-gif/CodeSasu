@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../supabase/types';
-import type { DiffEntry, FileTreeEntry, EslintIssueRaw } from './validate-payload';
+import type { DiffEntry, FileTreeEntry, EslintIssueRaw, SourceFile } from './validate-payload';
 
 type EphemeralDataType = Database['public']['Tables']['ephemeral_data']['Row']['data_type'];
 
@@ -78,6 +78,62 @@ export async function saveEphemeralFileTree(
   if (error) {
     throw new Error(`Failed to save ephemeral file tree: ${error.message}`);
   }
+}
+
+/**
+ * 전체 스캔(full_scan) 시 수신한 소스 파일을 ephemeral_data에 저장합니다.
+ * 파일당 1 row. 분석 완료 후 즉시 삭제 — DB 영구 저장 안 함.
+ */
+export async function saveEphemeralSourceFiles(
+  sessionId: string,
+  sourceFiles: SourceFile[]
+): Promise<void> {
+  if (sourceFiles.length === 0) return;
+
+  const supabase = createAdminClient();
+
+  const rows = sourceFiles.map((file) => ({
+    session_id: sessionId,
+    data_type: 'source_file' as EphemeralDataType,
+    content: file as unknown as Database['public']['Tables']['ephemeral_data']['Insert']['content'],
+  }));
+
+  const { error } = await supabase.from('ephemeral_data').insert(rows);
+
+  if (error) {
+    throw new Error(`Failed to save ephemeral source files: ${error.message}`);
+  }
+}
+
+/**
+ * 세션에 저장된 소스 파일을 조회합니다. (full_scan 분석/assess 경로용)
+ */
+export async function getEphemeralSourceFiles(sessionId: string): Promise<SourceFile[]> {
+  const supabase = createAdminClient();
+
+  const { data, error } = await supabase
+    .from('ephemeral_data')
+    .select('content')
+    .eq('session_id', sessionId)
+    .eq('data_type', 'source_file');
+
+  if (error) {
+    throw new Error(`Failed to get ephemeral source files: ${error.message}`);
+  }
+
+  const files: SourceFile[] = [];
+  for (const row of data ?? []) {
+    const c = row.content as Record<string, unknown> | null;
+    if (
+      c &&
+      typeof c.path === 'string' &&
+      typeof c.content === 'string' &&
+      typeof c.line_count === 'number'
+    ) {
+      files.push({ path: c.path, content: c.content, line_count: c.line_count });
+    }
+  }
+  return files;
 }
 
 /**

@@ -87,6 +87,63 @@ describe('callClaude — Prompt Caching', () => {
   });
 });
 
+describe('callClaude — max_tokens 사일런트 실패 방지', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  it('stop_reason=max_tokens일 때 console.warn으로 경고를 남긴다 (정상 케이스)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    createMock.mockResolvedValue({ ...baseResponse, stop_reason: 'max_tokens' });
+    const { callClaude } = await import('../claude-client');
+
+    await callClaude({
+      systemPrompt: 's',
+      userMessage: 'm',
+      tools: [fakeTool],
+      maxTokens: 4096,
+    });
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    const msg = warnSpy.mock.calls[0][0] as string;
+    expect(msg).toContain('stop_reason=max_tokens');
+    expect(msg).toContain('max_tokens=4096');
+    expect(msg).toContain('in:100/out:50');
+    warnSpy.mockRestore();
+  });
+
+  it('stop_reason=end_turn일 때는 경고를 남기지 않는다 (엣지)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    createMock.mockResolvedValue({ ...baseResponse, stop_reason: 'end_turn' });
+    const { callClaude } = await import('../claude-client');
+
+    await callClaude({
+      systemPrompt: 's',
+      userMessage: 'm',
+      tools: [fakeTool],
+    });
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('stop_reason 누락 시에도 경고를 남기지 않는다 (방어 — 에러)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    createMock.mockResolvedValue(baseResponse); // stop_reason 미정의
+    const { callClaude } = await import('../claude-client');
+
+    await callClaude({
+      systemPrompt: 's',
+      userMessage: 'm',
+      tools: [fakeTool],
+    });
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
 describe('callClaude — BYOK', () => {
   beforeEach(() => {
     vi.clearAllMocks();

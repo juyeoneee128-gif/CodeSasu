@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - name: TypeScript 타입 체크
+        run: npx tsc --noEmit
+      - name: ESLint
+        run: npx eslint src/ app/
+      - name: Vitest 전체 테스트
+        run: npx vitest run

@@ -1,4 +1,6 @@
 import { createHash } from 'crypto';
+import { extractSignatureFromContent } from './extract-signature-regex';
+import type { FileSignature } from '../specs/save-signatures';
 
 // ─── JSONL 메시지 타입 정의 ───
 
@@ -130,6 +132,12 @@ export interface ParsedSession {
   tool_usage: Record<string, number>;
   errors: ErrorEntry[];
   prompts_meta: PromptEntry[];
+
+  /**
+   * Read tool_result에서 정규식으로 추출한 파일 시그니처 (JS/TS만).
+   * push 라우트가 이 결과를 upsertFileSignatures로 합집합 머지.
+   */
+  file_signatures: FileSignature[];
 }
 
 // ─── 상수 ───
@@ -254,6 +262,9 @@ export function parseSession(jsonlLog: string): ParsedSession {
   // Step 8: 에러 추출 (tool_result는 user 메시지에 들어감 — Claude Code JSONL 사양)
   const errors = extractErrors(userMessages, assistantMessages);
 
+  // Step 8.5: Read tool_result 본문에서 시그니처 정규식 추출 (JS/TS만, 비용 0)
+  const fileSignatures = extractToolResultSignatures(userMessages, assistantMessages, cwd);
+
   // Step 9: 한국어 요약 텍스트
   const summary = buildSummary(prompts.length, filesChanged.length, durationSeconds);
 
@@ -285,6 +296,7 @@ export function parseSession(jsonlLog: string): ParsedSession {
     tool_usage: toolsUsed,
     errors,
     prompts_meta: promptsMeta,
+    file_signatures: fileSignatures,
   };
 }
 
@@ -314,6 +326,7 @@ function emptySession(rawLog: string, warnings: string[]): ParsedSession {
     tool_usage: {},
     errors: [],
     prompts_meta: [],
+    file_signatures: [],
   };
 }
 
@@ -558,6 +571,119 @@ function extractErrors(
   }
 
   return errors;
+}
+
+/**
+ * Read tool 결과 본문에서 정규식으로 파일 시그니처를 추출합니다.
+ *
+ * - assistant 측 Read tool_use에서 tool_use_id ↔ file_path 매핑
+ * - user 측 tool_result에서 매칭 id 찾아 본문 추출
+ * - JS/TS만 추출, 그 외는 skip
+ * - 같은 파일이 여러 번 Read되면 후속 결과로 합집합 머지 (서버 upsert에서도 다시 합집합)
+ *
+ * Write/Edit tool_result는 변경 후 본문이 들어오기도 하지만 형식이 일정하지 않아
+ * Read만 처리. 정적 분석 LLM 경로가 변경 파일을 별도로 커버.
+ */
+function extractToolResultSignatures(
+  userMessages: JsonlUserMessage[],
+  assistantMessages: JsonlAssistantMessage[],
+  cwd: string | null
+): FileSignature[] {
+  // tool_use_id → { file_path } 매핑 (Read tool만)
+  const readById = new Map<string, string>();
+  for (const msg of assistantMessages) {
+    for (const content of msg.message.content) {
+      if (content.type !== 'tool_use') continue;
+      const tc = content as JsonlContentToolUse;
+      if (tc.name !== 'Read') continue;
+      const path = filePathFromInput(tc.input);
+      if (path) {
+        readById.set(tc.id, toRelativePath(path, cwd));
+      }
+    }
+  }
+
+  if (readById.size === 0) return [];
+
+  const byPath = new Map<string, FileSignature>();
+
+  for (const msg of userMessages) {
+    for (const content of msg.message.content) {
+      if (content.type !== 'tool_result') continue;
+      const tr = content as JsonlContentToolResult;
+      const filePath = readById.get(tr.tool_use_id);
+      if (!filePath) continue;
+
+      const text = toolResultToText(tr.content);
+      if (!text) continue;
+
+      // Read tool은 보통 줄 번호 prefix를 붙임 ("    12→...") — 본문만 추출
+      const cleaned = stripReadLinePrefixes(text);
+
+      const sig = extractSignatureFromContent(filePath, cleaned);
+      if (!sig) continue;
+
+      const existing = byPath.get(filePath);
+      if (existing) {
+        byPath.set(filePath, mergeSignatures(existing, sig));
+      } else {
+        byPath.set(filePath, sig);
+      }
+    }
+  }
+
+  return Array.from(byPath.values());
+}
+
+/**
+ * tool_result.content는 string 또는 [{type:'text', text:'...'}] 형태일 수 있음.
+ */
+function toolResultToText(content: string | unknown[]): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const parts: string[] = [];
+  for (const item of content) {
+    if (typeof item === 'string') {
+      parts.push(item);
+    } else if (item && typeof item === 'object') {
+      const t = (item as { type?: string; text?: string }).text;
+      if (typeof t === 'string') parts.push(t);
+    }
+  }
+  return parts.join('\n');
+}
+
+/**
+ * Claude Code Read tool 출력은 라인마다 "    12→..." 같은 prefix를 붙임.
+ * 코드 분석을 위해 prefix를 제거하여 원본에 가깝게 복원.
+ */
+function stripReadLinePrefixes(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => line.replace(/^\s*\d+→/, ''))
+    .join('\n');
+}
+
+function mergeSignatures(a: FileSignature, b: FileSignature): FileSignature {
+  return {
+    file_path: a.file_path,
+    functions: dedupArr([...a.functions, ...b.functions]),
+    imports: dedupArr([...a.imports, ...b.imports]),
+    exports: dedupArr([...a.exports, ...b.exports]),
+    patterns: dedupArr([...a.patterns, ...b.patterns]),
+    line_count: Math.max(a.line_count, b.line_count),
+  };
+}
+
+function dedupArr(items: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const it of items) {
+    if (!it || seen.has(it)) continue;
+    seen.add(it);
+    out.push(it);
+  }
+  return out;
 }
 
 /**
